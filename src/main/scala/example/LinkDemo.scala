@@ -17,6 +17,15 @@ import spray.http.HttpHeaders._
 import spray.http.CacheDirectives.`max-age`
 import spray.http.Uri.Query
 
+/*
+ * A Demo of different strategies for Pagination, using the HTTP Link header
+ * as described in http://www.rfc-editor.org/rfc/rfc5988.txt
+ * 
+ * By always relying on the next/prev/last/first rel links different API endpoints
+ * can use different types of arguments for pagination, yet can still be treated
+ * the same by clients. 
+ */
+
 object LinkDemo extends App {
 
   implicit val system = ActorSystem("demo")
@@ -39,7 +48,7 @@ class Service extends HttpServiceActor {
             val cache = `Cache-Control`(`max-age`(offset * 60))
 
             val q = Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-            val next = ctx.request.uri.copy(query = q)
+            val next = Uri(path = ctx.request.uri.path, query = q)
             val link = RawHeader("Link", s"""<$next>; rel="next"""")
 
             ctx.complete(OK, link :: cache :: Nil, Range(offset, offset + limit).toList)
