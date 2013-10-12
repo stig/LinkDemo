@@ -57,36 +57,52 @@ class Service extends HttpServiceActor {
 
   implicit val timeout = Timeout(1.second)
 
+  // Dummy data for illustration purposes, in ascending order by date
   val data = (for {
     x <- 0 to 100
   } yield Item(UUID.randomUUID(), new DateTime().minusDays(x), Random.nextInt(20))).reverse
 
+  def cacheHeader(slice: Iterable[Item]) =
+    `Cache-Control`(`max-age`(slice.map(_.cache).min * 60))
+
+  def linkHeader(next: Uri) =
+    RawHeader("Link", s"""<$next>; rel="next"""")
+
   def receive = runRoute(
     get {
-      path("paging") {
+      path("by-offset") {
         parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
           ctx =>
             val slice = data.drop(offset).take(limit)
-            val cache = `Cache-Control`(`max-age`(slice.map(_.cache).min * 60))
-
             val q = Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-            val next = Uri(path = ctx.request.uri.path, query = q)
-            val link = RawHeader("Link", s"""<$next>; rel="next"""")
-
-            ctx.complete(OK, link :: cache :: Nil, slice)
+            val next = ctx.request.uri.copy(query = q)
+            ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
         }
       } ~
-        path("after") {
-          parameters('after ? 0L, 'limit ? 3) { (after, limit) =>
+        path("by-date") {
+          parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
             ctx =>
-              val slice = data.filter(_.created.isAfter(after)).take(limit)
-              val cache = `Cache-Control`(`max-age`(slice.map(_.cache).min * 60))
-
-              val q = Query("after" -> slice.last.created.getMillis.toString, "limit" -> limit.toString)
+              val slice = data.filter(_.created.isAfter(since)).take(limit)
+              val q = Query("since" -> slice.last.created.getMillis.toString, "limit" -> limit.toString)
               val next = ctx.request.uri.copy(query = q)
-              val link = RawHeader("Link", s"""<$next>; rel="next"""")
+              ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+          }
+        } ~
+        path("by-id") {
+          parameters('since ? "", 'limit ? 3) { (since, limit) =>
+            ctx =>
 
-              ctx.complete(OK, link :: cache :: Nil, slice)
+              val slice = (try {
+                val uuid = UUID.fromString(since)
+                data.dropWhile(_.id != uuid)
+              } catch {
+                case _: Exception =>
+                  data
+              }).take(limit)
+
+              val q = Query("since" -> slice.last.id.toString, "limit" -> limit.toString)
+              val next = ctx.request.uri.copy(query = q)
+              ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
           }
         }
 
