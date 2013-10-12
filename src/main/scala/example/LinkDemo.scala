@@ -22,7 +22,7 @@ import java.util.UUID
 
 case class Item(id: UUID, created: DateTime, cache: Int)
 
-object ItemJsonFormat {
+trait ItemJsonProtocol {
   implicit object UuidFormat extends JsonFormat[UUID] {
     def write(x: UUID) = JsString(x toString ())
     def read(value: JsValue) = value match {
@@ -51,9 +51,8 @@ object LinkDemo extends App {
   IO(Http) ! Http.Bind(service, interface = "localhost", port = 8080)
 }
 
-class Service extends HttpServiceActor {
+class Service extends HttpServiceActor with ItemJsonProtocol {
   import context.dispatcher
-  import ItemJsonFormat._
 
   implicit val timeout = Timeout(1.second)
 
