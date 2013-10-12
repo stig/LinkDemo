@@ -19,6 +19,8 @@ libraryDependencies ++=
     "io.spray" % "spray-can" % spray ::
     "io.spray" % "spray-routing" % spray ::
     "io.spray" %% "spray-json" % "1.2.5" ::
+    "joda-time" % "joda-time" % "2.2" ::
+    "org.joda" % "joda-convert" % "1.2" ::
     Nil
 
 
