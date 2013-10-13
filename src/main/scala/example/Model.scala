@@ -20,7 +20,7 @@ class Model extends Actor {
     case ItemsWithOffset(offset, limit) =>
       sender ! Items(data.drop(offset).take(limit))
 
-    case ItemsSinceEpoch(since, limit) =>
+    case ItemsSinceDateTime(since, limit) =>
       sender ! Items(data.filter(_.created.isAfter(since)).take(limit))
 
     case ItemsSinceId(id, limit) =>

@@ -51,7 +51,8 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
         path("by-date") {
           parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
             ctx =>
-              (model ? ItemsSinceEpoch(since, limit)) map {
+              val msg = if (since == 0) ItemsWithOffset(0, limit) else ItemsSinceDateTime(new DateTime(since), limit)
+              (model ? msg) map {
                 case Items(slice) =>
                   val q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
                   val next = ctx.request.uri.copy(query = q)

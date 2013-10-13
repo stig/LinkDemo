@@ -8,7 +8,7 @@ package example {
 
   case class ItemsWithOffset(offset: Int, limit: Int)
 
-  case class ItemsSinceEpoch(epoch: Long, limit: Int)
+  case class ItemsSinceDateTime(dt: DateTime, limit: Int)
 
   case class ItemsSinceId(id: UUID, limit: Int)
 
