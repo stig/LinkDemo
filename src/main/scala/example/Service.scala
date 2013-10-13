@@ -33,6 +33,43 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
   // A 5-second cache for 1000 most recent GET requests
   val simpleCache = routeCache(maxCapacity = 1000, timeToLive = 5.seconds)
 
+  val byOffset = parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
+    ctx =>
+      (model ? ItemsWithOffset(offset, limit)) map {
+        case Items(slice) =>
+          val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
+          val next = ctx.request.uri.copy(query = q)
+          ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+      }
+  }
+
+  val byDate = parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
+    ctx =>
+      val msg = if (since == 0) ItemsWithOffset(0, limit) else ItemsSinceDateTime(new DateTime(since), limit)
+      (model ? msg) map {
+        case Items(slice) =>
+          val q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
+          val next = ctx.request.uri.copy(query = q)
+          ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+      }
+  }
+
+  val byId = parameters('since ? "", 'limit ? 3) { (since, limit) =>
+    ctx =>
+      val msg = (try {
+        ItemsSinceId(UUID.fromString(since), limit)
+      } catch {
+        case _: Exception => ItemsWithOffset(0, limit)
+      })
+
+      (model ? msg) map {
+        case Items(slice) =>
+          val q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
+          val next = ctx.request.uri.copy(query = q)
+          ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+      }
+  }
+
   def receive = runRoute(
     cache(simpleCache) {
       get {
@@ -42,46 +79,9 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
             case None => complete(NotFound)
           }
         } ~
-          path("by-offset") {
-            parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
-              ctx =>
-                (model ? ItemsWithOffset(offset, limit)) map {
-                  case Items(slice) =>
-                    val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-                    val next = ctx.request.uri.copy(query = q)
-                    ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
-                }
-            }
-          }
-      } ~
-        path("by-date") {
-          parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
-            ctx =>
-              val msg = if (since == 0) ItemsWithOffset(0, limit) else ItemsSinceDateTime(new DateTime(since), limit)
-              (model ? msg) map {
-                case Items(slice) =>
-                  val q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
-                  val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
-              }
-          }
-        } ~
-        path("by-id") {
-          parameters('since ? "", 'limit ? 3) { (since, limit) =>
-            ctx =>
-              val msg = (try {
-                ItemsSinceId(UUID.fromString(since), limit)
-              } catch {
-                case _: Exception => ItemsWithOffset(0, limit)
-              })
-
-              (model ? msg) map {
-                case Items(slice) =>
-                  val q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
-                  val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
-              }
-          }
-        }
+          path("by-offset") { byOffset } ~
+          path("by-date") { byDate } ~
+          path("by-id") { byId }
+      }
     })
 }
