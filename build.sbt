@@ -8,6 +8,8 @@ resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/release
 
 resolvers += "Spray Nightlies" at "http://nightlies.spray.io"
 
+resolvers += "spray" at "http://repo.spray.io/"
+
 val akka = "2.2.1"
 val spray = "1.2-20130710"
 
