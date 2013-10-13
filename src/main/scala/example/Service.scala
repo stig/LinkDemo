@@ -23,8 +23,12 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
   def cacheHeader(slice: Iterable[Item]) =
     `Cache-Control`(`max-age`(slice.map(_.cache).min * 60))
 
-  def linkHeader(next: Uri) =
-    RawHeader("Link", s"""<$next>; rel="next"""")
+  def linkHeader(next: Uri, prev: Option[Uri]) = {
+    prev match {
+      case Some(prev) => RawHeader("Link", s"""<$next>; rel="next", <$prev>; rel="prev"""")
+      case None => RawHeader("Link", s"""<$next>; rel="next"""")
+    }
+  }
 
   def receive = runRoute(
     get {
@@ -34,8 +38,14 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
             (model ? ItemsWithOffset(offset, limit)) map {
               case Items(slice) =>
                 val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
+                val prevOffset = (offset - limit)
+                val prev = prevOffset match {
+                  case x if x < 0 => None
+                  case x => Option(ctx.request.uri.copy(query = Uri.Query("offset" -> (prevOffset).toString, "limit" -> limit.toString)))
+                }
+
                 val next = ctx.request.uri.copy(query = q)
-                ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                ctx.complete(OK, linkHeader(next, prev) :: cacheHeader(slice) :: Nil, slice)
             }
         }
       } ~
@@ -46,7 +56,7 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
                 case Items(slice) =>
                   val q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
                   val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                  ctx.complete(OK, linkHeader(next, None) :: cacheHeader(slice) :: Nil, slice)
               }
           }
         } ~
@@ -63,7 +73,7 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
                 case Items(slice) =>
                   val q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
                   val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                  ctx.complete(OK, linkHeader(next, None) :: cacheHeader(slice) :: Nil, slice)
               }
           }
         }
