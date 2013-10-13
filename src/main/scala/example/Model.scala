@@ -13,6 +13,10 @@ class Model extends Actor {
   } yield Item(UUID.randomUUID(), new DateTime().minusDays(x), Random.nextInt(20))).reverse
 
   def receive = {
+
+    case uuid: UUID =>
+      sender ! data.find(_.id == uuid).getOrElse(None)
+
     case ItemsWithOffset(offset, limit) =>
       sender ! Items(data.drop(offset).take(limit))
 

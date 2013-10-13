@@ -20,25 +20,34 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
 
   implicit val timeout = Timeout(10.seconds)
 
-  def cacheHeader(slice: Iterable[Item]) =
-    `Cache-Control`(`max-age`(slice.map(_.cache).min * 60))
+  def cacheHeader(slice: Iterable[Item]): `Cache-Control` =
+    cacheHeader(slice.map(_.cache).min)
+
+  def cacheHeader(cache: Int) =
+    `Cache-Control`(`max-age`(cache * 60))
 
   def linkHeader(next: Uri) =
     RawHeader("Link", s"""<$next>; rel="next"""")
 
   def receive = runRoute(
     get {
-      path("by-offset") {
-        parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
-          ctx =>
-            (model ? ItemsWithOffset(offset, limit)) map {
-              case Items(slice) =>
-                val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-                val next = ctx.request.uri.copy(query = q)
-                ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
-            }
+      path(JavaUUID) { id =>
+        onSuccess(model ? id) {
+          case i: Item => complete(OK, cacheHeader(i.cache) :: Nil, i)
+          case None => complete(NotFound)
         }
       } ~
+        path("by-offset") {
+          parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
+            ctx =>
+              (model ? ItemsWithOffset(offset, limit)) map {
+                case Items(slice) =>
+                  val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
+                  val next = ctx.request.uri.copy(query = q)
+                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+              }
+          }
+        } ~
         path("by-date") {
           parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
             ctx =>
