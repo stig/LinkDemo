@@ -14,6 +14,7 @@ import spray.http.CacheDirectives.`max-age`
 import spray.http.Uri
 import spray.httpx.SprayJsonSupport._
 import akka.pattern.ask
+import spray.routing.directives.CachingDirectives._
 
 class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
   import context.dispatcher
@@ -29,25 +30,30 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
   def linkHeader(next: Uri) =
     RawHeader("Link", s"""<$next>; rel="next"""")
 
+  // A 5-second cache for 1000 most recent GET requests
+  val simpleCache = routeCache(maxCapacity = 1000, timeToLive = 5.seconds)
+
   def receive = runRoute(
-    get {
-      path(JavaUUID) { id =>
-        onSuccess(model ? id) {
-          case i: Item => complete(OK, cacheHeader(i.cache) :: Nil, i)
-          case None => complete(NotFound)
-        }
-      } ~
-        path("by-offset") {
-          parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
-            ctx =>
-              (model ? ItemsWithOffset(offset, limit)) map {
-                case Items(slice) =>
-                  val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-                  val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
-              }
+    cache(simpleCache) {
+      get {
+        path(JavaUUID) { id =>
+          onSuccess(model ? id) {
+            case i: Item => complete(OK, cacheHeader(i.cache) :: Nil, i)
+            case None => complete(NotFound)
           }
         } ~
+          path("by-offset") {
+            parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
+              ctx =>
+                (model ? ItemsWithOffset(offset, limit)) map {
+                  case Items(slice) =>
+                    val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
+                    val next = ctx.request.uri.copy(query = q)
+                    ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                }
+            }
+          }
+      } ~
         path("by-date") {
           parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
             ctx =>
@@ -77,6 +83,5 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
               }
           }
         }
-
     })
 }
