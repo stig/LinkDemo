@@ -33,6 +33,12 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
   // A 5-second cache for 1000 most recent GET requests
   val simpleCache = routeCache(maxCapacity = 1000, timeToLive = 5.seconds)
 
+  def process(ctx: RequestContext, slice: Iterable[Item], query: => Uri.Query, limit: Int) = {
+    val headers = if (slice.size > limit) linkHeader(ctx.request.uri.copy(query = query)) :: Nil else Nil
+    val slice2 = slice.take(limit)
+    ctx.complete(OK, cacheHeader(slice2) :: headers, slice2)
+  }
+
   def receive = runRoute(
     cache(simpleCache) {
       get {
@@ -45,11 +51,10 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
           path("by-offset") {
             parameters('offset ? 0, 'limit ? 3) { (offset: Int, limit: Int) =>
               ctx =>
-                (model ? ItemsWithOffset(offset, limit)) map {
+                (model ? ItemsWithOffset(offset, limit + 1)) map {
                   case Items(slice) =>
-                    val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-                    val next = ctx.request.uri.copy(query = q)
-                    ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                    def q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
+                    process(ctx, slice, q, limit)
                 }
             }
           }
@@ -57,12 +62,12 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
         path("by-date") {
           parameters('since ? 0L, 'limit ? 3) { (since, limit) =>
             ctx =>
-              val msg = if (since == 0) ItemsWithOffset(0, limit) else ItemsSinceDateTime(new DateTime(since), limit)
+              val msg = if (since == 0) ItemsWithOffset(0, limit + 1) else ItemsSinceDateTime(new DateTime(since), limit + 1)
+
               (model ? msg) map {
                 case Items(slice) =>
-                  val q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
-                  val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                  def q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
+                  process(ctx, slice, q, limit)
               }
           }
         } ~
@@ -70,16 +75,15 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
           parameters('since ? "", 'limit ? 3) { (since, limit) =>
             ctx =>
               val msg = (try {
-                ItemsSinceId(UUID.fromString(since), limit)
+                ItemsSinceId(UUID.fromString(since), limit + 1)
               } catch {
-                case _: Exception => ItemsWithOffset(0, limit)
+                case _: Exception => ItemsWithOffset(0, limit + 1)
               })
 
               (model ? msg) map {
                 case Items(slice) =>
-                  val q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
-                  val next = ctx.request.uri.copy(query = q)
-                  ctx.complete(OK, linkHeader(next) :: cacheHeader(slice) :: Nil, slice)
+                  def q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
+                  process(ctx, slice, q, limit)
               }
           }
         }
