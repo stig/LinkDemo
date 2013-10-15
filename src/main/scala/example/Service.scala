@@ -30,7 +30,7 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
   def linkHeader(next: Uri) =
     RawHeader("Link", s"""<$next>; rel="next"""")
 
-  // A 5-second cache for 1000 most recent GET requests
+  // A 5-second cache for 1000 most recent GET requests.
   val simpleCache = routeCache(maxCapacity = 1000, timeToLive = 5.seconds)
 
   def process(ctx: RequestContext, slice: Iterable[Item], query: => Uri.Query, limit: Int) = {
