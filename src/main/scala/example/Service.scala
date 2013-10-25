@@ -21,9 +21,6 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
 
   implicit val timeout = Timeout(10.seconds)
 
-  def cacheHeader(slice: Iterable[Item]): `Cache-Control` =
-    cacheHeader(slice.map(_.cache).min)
-
   def cacheHeader(cache: Int) =
     `Cache-Control`(`max-age`(cache * 60))
 
@@ -32,12 +29,6 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
 
   // A 5-second cache for 1000 most recent GET requests.
   val simpleCache = routeCache(maxCapacity = 1000, timeToLive = 5.seconds)
-
-  def process(ctx: RequestContext, slice: Iterable[Item], query: => Uri.Query, limit: Int) = {
-    val headers = if (slice.size > limit) linkHeader(ctx.request.uri.copy(query = query)) :: Nil else Nil
-    val slice2 = slice.take(limit)
-    ctx.complete(OK, cacheHeader(slice2) :: headers, slice2)
-  }
 
   def receive = runRoute(
     cache(simpleCache) {
@@ -53,8 +44,11 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
               ctx =>
                 (model ? ItemsWithOffset(offset, limit + 1)) map {
                   case Items(slice) =>
-                    def q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
-                    process(ctx, slice, q, limit)
+                    val headers = if (slice.size > limit) {
+                      val q = Uri.Query("offset" -> (offset + limit).toString, "limit" -> limit.toString)
+                      linkHeader(ctx.request.uri.copy(query = q)) :: Nil
+                    } else Nil
+                    ctx.complete(OK, cacheHeader(slice.map(_.cache).min) :: headers, slice.take(limit))
                 }
             }
           }
@@ -66,8 +60,11 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
 
               (model ? msg) map {
                 case Items(slice) =>
-                  def q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
-                  process(ctx, slice, q, limit)
+                  val headers = if (slice.size > limit) {
+                    val q = Uri.Query("since" -> slice.toList.last.created.getMillis.toString, "limit" -> limit.toString)
+                    linkHeader(ctx.request.uri.copy(query = q)) :: Nil
+                  } else Nil
+                  ctx.complete(OK, cacheHeader(slice.map(_.cache).min) :: headers, slice.take(limit))
               }
           }
         } ~
@@ -82,8 +79,11 @@ class Service(model: ActorRef) extends HttpServiceActor with ItemJsonProtocol {
 
               (model ? msg) map {
                 case Items(slice) =>
-                  def q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
-                  process(ctx, slice, q, limit)
+                  val headers = if (slice.size > limit) {
+                    val q = Uri.Query("since" -> slice.toList.last.id.toString, "limit" -> limit.toString)
+                    linkHeader(ctx.request.uri.copy(query = q)) :: Nil
+                  } else Nil
+                  ctx.complete(OK, cacheHeader(slice.map(_.cache).min) :: headers, slice.take(limit))
               }
           }
         }
