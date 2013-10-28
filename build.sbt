@@ -6,6 +6,8 @@ scalaVersion := "2.10.2"
 
 resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/"
 
+resolvers += "spray" at "http://repo.spray.io/"
+
 resolvers += "Spray Nightlies" at "http://nightlies.spray.io"
 
 val akka = "2.2.1"
